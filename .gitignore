@@ -1,11 +1,77 @@
-venv/
+# =========================
+# Python cache & compiled
+# =========================
 __pycache__/
 *.pyc
-*.log
-*.sqlite3
-*.csv
-*.json
-data/
+*.pyo
+*.pyd
+
+# =========================
+# Virtual environments
+# =========================
+venv/
+env/
+ENV/
+
+# =========================
+# Environment variables
+# =========================
 .env
-node_modules/
+.env.*
+
+# =========================
+# Data & scraped outputs
+# =========================
+data/
+*.csv
+*.xlsx
+*.json
+*.log
+
+# =========================
+# OS junk
+# =========================
 .DS_Store
+Thumbs.db
+
+# =========================
+# IDE & editor files
+# =========================
+.vscode/
+.idea/
+*.swp
+
+# =========================
+# Streamlit cache
+# =========================
+.streamlit/
+
+# =========================
+# Playwright & browser cache
+# =========================
+playwright/.local-browsers/
+browser_cache/
+
+# =========================
+# Temporary & test outputs
+# =========================
+tmp/
+temp/
+test_output/
+
+# =========================
+# Logs
+# =========================
+logs/
+*.log
+
+# =========================
+# SQLite / DB
+# =========================
+*.db
+*.sqlite3
+
+# =========================
+# Render & deployment
+# =========================
+*.pid
