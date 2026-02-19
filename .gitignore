@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+*.log
+*.sqlite3
+*.csv
+*.json
+data/
+.env
+node_modules/
+.DS_Store
