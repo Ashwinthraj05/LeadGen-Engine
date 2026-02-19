@@ -1,0 +1,21 @@
+def remove_existing_domains(leads):
+
+    try:
+        with open("data/master_domains.txt", "r") as f:
+            existing = set(f.read().splitlines())
+    except:
+        existing = set()
+
+    new_leads = []
+
+    for lead in leads:
+        domain = lead["Website"]
+        if domain and domain not in existing:
+            new_leads.append(lead)
+            existing.add(domain)
+
+    with open("data/master_domains.txt", "w") as f:
+        for d in existing:
+            f.write(d + "\n")
+
+    return new_leads

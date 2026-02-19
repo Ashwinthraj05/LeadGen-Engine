@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Lead Engine</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #0f172a;
+            color: white;
+            padding: 30px;
+        }
+        input, button {
+            padding: 10px;
+            margin: 5px;
+            border-radius: 6px;
+            border: none;
+        }
+        button {
+            background: #22c55e;
+            color: white;
+            cursor: pointer;
+        }
+        table {
+            margin-top: 20px;
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 10px;
+            border-bottom: 1px solid #334155;
+        }
+        th {
+            background: #1e293b;
+        }
+    </style>
+</head>
+<body>
+
+<h1>🚀 Business Lead Engine</h1>
+
+<form id="scrapeForm">
+    <input name="city" placeholder="City" required>
+    <input name="keyword" placeholder="Keyword" required>
+    <input name="pages" placeholder="Pages" value="1">
+    <button type="submit">Scrape</button>
+</form>
+
+<button onclick="downloadCSV()">⬇ Download CSV</button>
+
+<table id="results">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Phone</th>
+            <th>Email</th>
+            <th>Website</th>
+            <th>Source</th>
+        </tr>
+    </thead>
+    <tbody></tbody>
+</table>
+
+<script>
+document.getElementById("scrapeForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+
+    const res = await fetch("/scrape", {
+        method: "POST",
+        body: formData
+    });
+
+    const data = await res.json();
+    const table = document.querySelector("#results tbody");
+    table.innerHTML = "";
+
+    data.forEach(item => {
+        table.innerHTML += `
+            <tr>
+                <td>${item.Name}</td>
+                <td>${item.Phone}</td>
+                <td>${item.Email}</td>
+                <td>${item.Website}</td>
+                <td>${item.Source}</td>
+            </tr>`;
+    });
+};
+
+function downloadCSV() {
+    window.location.href = "/download";
+}
+</script>
+
+</body>
+</html>
