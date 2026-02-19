@@ -28,3 +28,4 @@ lxml
 playwright
 tldextract
 fake-useragent
+google-search-results
