@@ -1,7 +1,15 @@
 # ====================================
 # API KEYS
 # ====================================
-SERP_API_KEY = "d3254bd5eaf71f77af07014a1758c5e65e76a21276bad70028b32b381dcc29ff"
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+SERP_API_KEY = os.getenv("SERPAPI_KEY")
+
+if not SERP_API_KEY:
+    raise ValueError(
+        "❌ SERPAPI_KEY not found. Set it in environment variables.")
 
 # ====================================
 # REQUEST HEADERS
@@ -98,12 +106,12 @@ DEFAULT_CATEGORIES = [
 # PAGINATION BOOST
 # ====================================
 
-GOOGLE_PAGES = 15
-GOOGLE_SEARCH_PAGES = 15
-JUSTDIAL_PAGES = 15
+GOOGLE_PAGES = 2
+GOOGLE_SEARCH_PAGES = 2
+JUSTDIAL_PAGES = 2
 
 # ====================================
 # SCALE CONTROL
 # ====================================
 
-MAX_WEBSITES = 20000
+MAX_WEBSITES = 50

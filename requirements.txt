@@ -29,3 +29,9 @@ playwright
 tldextract
 fake-useragent
 google-search-results
+python-dotenv
+openpyxl
+pyarrow
+pandas
+streamlit
+requests

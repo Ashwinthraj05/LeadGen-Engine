@@ -1,191 +1,210 @@
 import re
-import time
+import urllib3
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils.helpers import safe_request
+from processors.validator import filter_emails
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# --------------------------------------------------
+# EMAIL PATTERN
+# --------------------------------------------------
 
 EMAIL_REGEX = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
 
 COMMON_CONTACT_PATHS = [
-    "/contact",
-    "/contact-us",
-    "/contactus",
-    "/about",
-    "/about-us",
-    "/aboutus",
-    "/support",
-    "/reach-us",
-    "/team",
-    "/staff",
-    "/company",
-    "/who-we-are",
-    "/get-in-touch"
+    "/contact", "/contact-us", "/about", "/about-us",
+    "/support", "/team", "/company", "/connect"
 ]
 
-# Skip slow / blocked enterprise domains
-SLOW_KEYWORDS = [
-    "hospital",
-    "health",
-    "network",
-    ".edu",
-    "government"
+# skip irrelevant domains ONLY
+SKIP_DOMAINS = [
+    ".gov", ".edu"
 ]
 
+# block directories & social platforms
+BLOCKED_DOMAINS = [
+    "linkedin", "facebook", "instagram", "twitter",
+    "youtube", "quora", "reddit", "indeed", "naukri",
+    "glassdoor", "justdial", "yellowpages",
+    "clutch.co", "goodfirms", "semrush", "f6s.com"
+]
 
-# ✅ browser-like headers
+# junk & fake emails
+JUNK_EMAIL_PATTERNS = [
+    "example.com", "test.com", "domain.com",
+    "error-tracking", "noreply", "no-reply",
+    "donotreply", "webmaster", "admin@localhost"
+]
+
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    "Accept-Language": "en-US,en;q=0.9",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
 
+# --------------------------------------------------
 
-def normalize_url(url):
+
+def normalize(url):
     if not url.startswith("http"):
         url = "https://" + url
     return url.rstrip("/")
 
 
-def is_slow_domain(url):
-    return any(word in url.lower() for word in SLOW_KEYWORDS)
+def skip_domain(url):
+    url = url.lower()
+    return any(x in url for x in SKIP_DOMAINS) or any(b in url for b in BLOCKED_DOMAINS)
 
 
-def fetch_url(url, retries=2):
-    """Safe fetch with retry & anti-block"""
-    for _ in range(retries):
-        try:
-            res = safe_request(url, headers=HEADERS)
+def valid(email):
+    email = email.lower()
+    if any(j in email for j in JUNK_EMAIL_PATTERNS):
+        return False
+    return True
 
-            if res is None:
-                continue
-
-            if res.status_code == 200:
-                return res
-
-            # blocked → retry
-            if res.status_code in [403, 429]:
-                time.sleep(2)
-
-        except:
-            time.sleep(1)
-
-    return None
+# --------------------------------------------------
+# EMAIL EXTRACTION
+# --------------------------------------------------
 
 
-def extract_from_html(html):
+def extract(html):
+    """Extract emails from HTML"""
+
     emails = set()
 
-    # ✅ regex scan
-    found = re.findall(EMAIL_REGEX, html, re.I)
-    for email in found:
-        emails.add(email.lower())
+    # regex scan
+    for e in re.findall(EMAIL_REGEX, html, re.I):
+        if valid(e):
+            emails.add(e.lower())
 
     soup = BeautifulSoup(html, "html.parser")
 
-    # ✅ mailto links
-    for link in soup.find_all("a", href=True):
-        href = link["href"]
-        if "mailto:" in href:
-            email = href.split("mailto:")[1].split("?")[0]
-            emails.add(email.lower())
+    # mailto links
+    for a in soup.find_all("a", href=True):
+        if "mailto:" in a["href"]:
+            e = a["href"].split("mailto:")[1].split("?")[0]
+            if valid(e):
+                emails.add(e.lower())
 
-    # ✅ footer scan (high success rate)
-    footer = soup.find("footer")
-    if footer:
-        footer_text = footer.get_text(" ")
-        emails.update(re.findall(EMAIL_REGEX, footer_text, re.I))
+    # decode obfuscated emails
+    text = soup.get_text(" ")
+
+    replacements = {
+        "[at]": "@", "(at)": "@", " at ": "@",
+        "[dot]": ".", "(dot)": ".", " dot ": "."
+    }
+
+    for k, v in replacements.items():
+        text = text.replace(k, v)
+
+    for e in re.findall(EMAIL_REGEX, text, re.I):
+        if valid(e):
+            emails.add(e.lower())
 
     return emails
 
+# --------------------------------------------------
+# WEBSITE SCRAPER
+# --------------------------------------------------
 
-def find_contact_links(soup, base_url):
-    """Discover contact-related links dynamically"""
-    links = set()
 
-    for a in soup.find_all("a", href=True):
-        href = a["href"].lower()
-
-        if any(word in href for word in ["contact", "support", "about", "reach"]):
-            full_url = urljoin(base_url, href)
-            links.add(full_url)
-
-    return links
+def fetch(url, timeout=12):
+    """Safe request with headers & retry"""
+    try:
+        return safe_request(url, timeout=timeout, headers=HEADERS)
+    except:
+        return None
 
 
 def extract_emails_from_website(url):
     """
-    Advanced Email Extraction Engine
-
-    ✔ homepage scan
-    ✔ footer scan
-    ✔ dynamic contact links
-    ✔ contact pages
-    ✔ mailto detection
-    ✔ anti-block retries
-    ✔ safe fail (never breaks pipeline)
+    ⚡ High accuracy email extraction
     """
 
     if not url:
         return []
 
     try:
-        base_url = normalize_url(url)
+        url = normalize(url)
 
-        if is_slow_domain(base_url):
+        if skip_domain(url):
             return []
 
-        emails = set()
+        raw_emails = set()
 
-        # =========================
-        # 1️⃣ HOMEPAGE
-        # =========================
-        response = fetch_url(base_url)
+        # ===== 1️⃣ MAIN PAGE =====
+        res = fetch(url)
 
-        if not response:
+        # try www fallback
+        if not res:
+            parsed = urlparse(url)
+            www_url = f"{parsed.scheme}://www.{parsed.netloc}"
+            res = fetch(www_url)
+
+        if not res:
             return []
 
-        emails.update(extract_from_html(response.text))
+        raw_emails.update(extract(res.text))
+        soup = BeautifulSoup(res.text, "html.parser")
 
-        soup = BeautifulSoup(response.text, "html.parser")
+        # ===== 2️⃣ FIND CONTACT LINKS =====
+        links = set()
+        for a in soup.find_all("a", href=True):
+            href = a["href"].lower()
 
-        # discover contact links
-        contact_links = find_contact_links(soup, base_url)
+            if any(k in href for k in ["contact", "about", "support", "team", "connect"]):
+                links.add(urljoin(url, href))
 
-        if emails:
-            return list(emails)
-
-        time.sleep(1)
-
-        # =========================
-        # 2️⃣ DYNAMIC CONTACT LINKS
-        # =========================
-        for link in contact_links:
-            res = fetch_url(link)
+        # visit top contact pages
+        for link in list(links)[:5]:
+            res = fetch(link, timeout=10)
             if res:
-                emails.update(extract_from_html(res.text))
-                if emails:
-                    return list(emails)
-            time.sleep(1)
+                raw_emails.update(extract(res.text))
 
-        # =========================
-        # 3️⃣ COMMON CONTACT PATHS
-        # =========================
-        parsed = urlparse(base_url)
+        # ===== 3️⃣ COMMON CONTACT PATHS =====
+        parsed = urlparse(url)
         root = f"{parsed.scheme}://{parsed.netloc}"
 
         for path in COMMON_CONTACT_PATHS:
-            contact_url = urljoin(root, path)
-            res = fetch_url(contact_url)
-
+            res = fetch(urljoin(root, path), timeout=10)
             if res:
-                emails.update(extract_from_html(res.text))
-                if emails:
-                    return list(emails)
+                raw_emails.update(extract(res.text))
 
-            time.sleep(1)
+        if not raw_emails:
+            return []
+
+        # ===== 4️⃣ FILTER & PRIORITIZE =====
+        return filter_emails(list(raw_emails), website=url)
 
     except Exception:
         return []
 
-    return list(emails)
+# --------------------------------------------------
+# 🚀 BULK PARALLEL EXTRACTION
+# --------------------------------------------------
+
+
+def extract_emails_bulk(urls, workers=20):
+    """
+    Parallel email extraction
+    """
+
+    results = []
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(extract_emails_from_website, u): u
+            for u in urls if u
+        }
+
+        for future in as_completed(futures):
+            try:
+                emails = future.result()
+                if emails:
+                    results.extend(emails)
+            except:
+                pass
+
+    return list(set(results))

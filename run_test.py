@@ -1,6 +1,11 @@
 from core.orchestrator import run_global_scraper
 
-run_global_scraper(
-    cities=["Bangalore"],
-    categories=["bpo company", "medical billing company"]
-)
+if __name__ == "__main__":
+    leads = run_global_scraper(
+        cities=["Chennai"],
+        categories=["digital marketing agency"]
+    )
+
+    print("\n\n=== RESULTS ===\n")
+    for lead in leads[:5]:
+        print(lead)
