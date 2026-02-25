@@ -1,55 +1,106 @@
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+
 from utils.headers import get_headers
+from utils.helpers import create_business
 from utils.stealth import human_delay
 
 
 def scrape_bbb(city, keyword, pages=2):
+    """
+    Scrape Better Business Bureau listings
+    Works best for US companies & outsourcing firms
+    """
 
     results = []
-    city_slug = city.replace(" ", "-").lower()
+    session = requests.Session()
+    session.headers.update(get_headers())
+
+    city_slug = city.replace(" ", "-")
+    keyword_slug = keyword.replace(" ", "+")
 
     for page in range(1, pages + 1):
 
-        url = f"https://www.bbb.org/search?find_country=USA&find_text={keyword}&find_loc={city_slug}&page={page}"
+        url = (
+            "https://www.bbb.org/search?"
+            f"find_country=USA&"
+            f"find_text={keyword_slug}&"
+            f"find_loc={city_slug}&"
+            f"page={page}"
+        )
 
         print(f"🟩 BBB → {url}")
 
         try:
-            res = requests.get(url, headers=get_headers(), timeout=20)
+            res = session.get(url, timeout=20)
+        except Exception:
+            continue
 
-            if res.status_code != 200:
+        if res.status_code != 200:
+            print("⚠ Blocked:", res.status_code)
+            continue
+
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        listings = soup.select(
+            ".result-item, .MuiCard-root"
+        )
+
+        if not listings:
+            print("⚠ No results found")
+            continue
+
+        for item in listings:
+
+            # -----------------
+            # BUSINESS NAME
+            # -----------------
+            name_tag = item.select_one(
+                "a.result-business-name, a[href*='/profile/']"
+            )
+
+            if not name_tag:
                 continue
 
-            soup = BeautifulSoup(res.text, "html.parser")
-            listings = soup.select(".result-item")
+            name = name_tag.get_text(strip=True)
 
-            for item in listings:
+            # -----------------
+            # WEBSITE
+            # -----------------
+            website = ""
 
-                name_tag = item.select_one("a.result-business-name")
-                website_tag = item.select_one("a[href^='http']")
+            site_tag = item.select_one(
+                "a[href^='http'][rel='noopener'], a[href*='http']"
+            )
 
-                if not name_tag:
-                    continue
+            if site_tag:
+                website = site_tag.get("href", "").strip()
 
-                name = name_tag.get_text(strip=True)
+            if not website:
+                continue
 
-                website = ""
-                if website_tag:
-                    website = website_tag.get("href")
+            # -----------------
+            # PHONE (optional)
+            # -----------------
+            phone = ""
+            phone_tag = item.select_one(".bds-body")
+            if phone_tag:
+                phone = phone_tag.get_text(strip=True)
 
-                if not website:
-                    continue
+            results.append(
+                create_business(
+                    name=name,
+                    phone=phone,
+                    address="",
+                    website=website,
+                    email="",
+                    city=city,
+                    category=keyword,
+                    source="BBB"
+                )
+            )
 
-                results.append({
-                    "Name": name,
-                    "Website": website,
-                    "Phone": ""
-                })
-
-            human_delay()
-
-        except Exception as e:
-            print("BBB error:", e)
+        human_delay()
 
     return results

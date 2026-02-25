@@ -1,12 +1,23 @@
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+
 from utils.headers import get_headers
+from utils.helpers import create_business
 from utils.stealth import human_delay
 
 
-def scrape_clutch(keyword, pages=2):
+def scrape_clutch(city, keyword, pages=2):
+    """
+    Scrape Clutch company listings
+    Works globally for services like:
+    BPO, IT Services, Medical Billing, RCM, Outsourcing
+    """
 
     results = []
+    session = requests.Session()
+    session.headers.update(get_headers())
+
     keyword_slug = keyword.replace(" ", "-").lower()
 
     for page in range(1, pages + 1):
@@ -16,34 +27,69 @@ def scrape_clutch(keyword, pages=2):
         print(f"🔵 Clutch → {url}")
 
         try:
-            res = requests.get(url, headers=get_headers(), timeout=20)
+            res = session.get(url, timeout=20)
+        except Exception:
+            continue
 
-            if res.status_code != 200:
+        if res.status_code != 200:
+            print("⚠ Blocked:", res.status_code)
+            continue
+
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        companies = soup.select(
+            ".provider-row, .directory-list div.provider"
+        )
+
+        if not companies:
+            print("⚠ No companies found")
+            continue
+
+        for comp in companies:
+
+            # -----------------
+            # NAME
+            # -----------------
+            name_tag = comp.select_one(
+                ".company-name, .provider__title a"
+            )
+
+            if not name_tag:
                 continue
 
-            soup = BeautifulSoup(res.text, "html.parser")
-            companies = soup.select(".provider-row")
+            name = name_tag.get_text(strip=True)
 
-            for comp in companies:
+            # -----------------
+            # WEBSITE
+            # -----------------
+            website = ""
 
-                name_tag = comp.select_one(".company-name")
-                website_tag = comp.select_one("a.website-link__item")
+            website_tag = comp.select_one(
+                "a.website-link__item, a[data-type='website']"
+            )
 
-                if not name_tag or not website_tag:
-                    continue
+            if website_tag:
+                website = website_tag.get("href", "")
+                if website.startswith("/"):
+                    website = urljoin("https://clutch.co", website)
 
-                name = name_tag.get_text(strip=True)
-                website = website_tag.get("href")
+            # skip if no website (optional)
+            if not website:
+                continue
 
-                results.append({
-                    "Name": name,
-                    "Website": website,
-                    "Phone": ""
-                })
+            results.append(
+                create_business(
+                    name=name,
+                    phone="",
+                    address="",
+                    website=website,
+                    email="",
+                    city=city,
+                    category=keyword,
+                    source="Clutch"
+                )
+            )
 
-            human_delay()
-
-        except Exception as e:
-            print("Clutch error:", e)
+        human_delay()
 
     return results

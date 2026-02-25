@@ -3,13 +3,15 @@
 # ====================================
 import os
 from dotenv import load_dotenv
+
+# load .env safely
 load_dotenv()
 
 SERP_API_KEY = os.getenv("SERPAPI_KEY")
 
 if not SERP_API_KEY:
-    raise ValueError(
-        "❌ SERPAPI_KEY not found. Set it in environment variables.")
+    print("⚠ WARNING: SERPAPI_KEY not found.")
+    print("➡ SerpAPI will be skipped, Playwright fallback will be used.")
 
 # ====================================
 # REQUEST HEADERS
@@ -20,7 +22,6 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml",
     "Connection": "keep-alive",
 }
-
 
 # ====================================
 # STEALTH / ANTI-BLOCK SETTINGS

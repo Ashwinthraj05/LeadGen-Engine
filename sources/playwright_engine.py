@@ -1,8 +1,14 @@
+import sys
+import asyncio
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 from urllib.parse import quote_plus
 import time
 import random
+
+# ✅ FIX: Required for Windows + Streamlit subprocess support
+if sys.platform.startswith("win"):
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
 def scrape_playwright(city, keyword, pages=3):

@@ -19,10 +19,16 @@ from sources.google_maps import scrape_google_maps
 from sources.serpapi_engine import scrape_serpapi
 from sources.playwright_engine import scrape_playwright
 
+# ⭐ NEW SOURCES (SAFE)
+from sources.bbb import scrape_bbb
+from sources.indiamart import scrape_indiamart
+from sources.justdial import scrape_justdial
+
 from config import COUNTRIES, DEFAULT_CATEGORIES, GOOGLE_PAGES, MAX_WEBSITES
 
+
 # --------------------------------------------------
-# FILTERING RULES
+# FILTER RULES
 # --------------------------------------------------
 
 BLOCKED_DOMAINS = [
@@ -34,10 +40,18 @@ BLOCKED_DOMAINS = [
 
 SKIP_EMAIL_DOMAINS = [".gov", ".edu"]
 SPAM_TRAPS = ["example.com", "domain.com", "email.com"]
+FALLBACK_PREFIXES = ["sales", "info", "contact", "hello"]
 
 
 def bad_domain(url):
     return any(d in url.lower() for d in SKIP_EMAIL_DOMAINS)
+
+
+def get_domain(site):
+    try:
+        return urlparse(site).netloc.replace("www.", "")
+    except:
+        return ""
 
 
 def domain_match(email_domain, site):
@@ -46,8 +60,15 @@ def domain_match(email_domain, site):
     except:
         return False
 
-# --------------------------------------------------
 
+def generate_fallback_email(site):
+    domain = get_domain(site)
+    if not domain:
+        return ""
+    return f"{FALLBACK_PREFIXES[0]}@{domain}"
+
+
+# --------------------------------------------------
 
 def run_global_scraper(cities=None, categories=None,
                        progress_callback=None, stop_flag=None):
@@ -70,43 +91,73 @@ def run_global_scraper(cities=None, categories=None,
     all_leads = []
 
     # =================================================
-    # 🔎 SCRAPE BUSINESS LISTINGS
+    # 🔎 SCRAPE LISTINGS
     # =================================================
     for city in cities:
+
+        if stop_flag and stop_flag():
+            update_progress("🛑 Stop requested")
+            return []
+
         update_progress(f"📍 City: {city}")
 
         for category in categories:
+
             update_progress(f"🏷 Category: {category}")
 
-            keywords = expand_keyword(category)
+            keywords = expand_keyword(category) + [
+                f"top {category}",
+                f"best {category}",
+                f"{category} companies",
+                f"{category} services",
+                f"{category} providers",
+            ]
 
             for keyword in keywords:
+
+                if stop_flag and stop_flag():
+                    update_progress("🛑 Stop requested")
+                    return []
+
                 update_progress(f"🔎 Searching: {keyword}")
 
+                # Google Maps
                 try:
                     all_leads += scrape_google_maps(city,
                                                     keyword, GOOGLE_PAGES)
                 except Exception as e:
                     update_progress(f"Maps error: {e}")
 
-                human_delay()
-
+                # Google search engines
                 try:
                     leads = scrape_serpapi(city, keyword, GOOGLE_PAGES)
                     if not leads:
-                        raise Exception("SerpAPI empty")
+                        raise Exception("empty")
                 except:
                     leads = scrape_playwright(city, keyword, GOOGLE_PAGES)
 
                 all_leads += leads
+
+                # ⭐ EXTRA SOURCES (HUGE BOOST)
+                for source in (
+                    scrape_bbb,
+                    scrape_indiamart,
+                    scrape_justdial,
+                ):
+                    try:
+                        all_leads += source(city, keyword)
+                    except:
+                        pass
+
                 human_delay()
 
-    update_progress(f"📊 Raw Leads: {len(all_leads)}")
+        update_progress(f"📊 Raw Leads: {len(all_leads)}")
 
     # =================================================
-    # 🧹 CLEAN & DEDUPE
+    # CLEAN & DEDUPE
     # =================================================
     cleaned = []
+
     for lead in all_leads:
         website = lead.get("Website") or lead.get("url") or ""
 
@@ -126,10 +177,11 @@ def run_global_scraper(cities=None, categories=None,
         })
 
     unique = dedupe_businesses(cleaned)[:MAX_WEBSITES]
+
     update_progress(f"✅ Unique Leads: {len(unique)}")
 
     # =================================================
-    # ⚡ FAST EMAIL EXTRACTION
+    # EMAIL EXTRACTION
     # =================================================
     update_progress("📧 Extracting emails...")
 
@@ -149,30 +201,31 @@ def run_global_scraper(cities=None, categories=None,
             if domain_match(domain, site):
                 email_map.setdefault(site, []).append(email)
 
-    # assign emails
     for lead in unique:
         site = lead["Website"]
+        valid, invalid = [], []
 
         if site in email_map:
-            valid = []
-            invalid = []
-
             for e in email_map[site]:
                 e = clean_email(e)
-
                 if is_valid_email(e):
                     valid.append(e)
                 else:
                     invalid.append(e)
 
-            if valid:
-                lead["Email"] = choose_best_email(valid, site)
+        if valid:
+            lead["Email"] = choose_best_email(valid, site)
 
-            if invalid:
-                lead["UndeliverableEmails"] = invalid
+        if invalid:
+            lead["UndeliverableEmails"] = list(set(invalid))
+
+        if not lead["Email"]:
+            fallback = generate_fallback_email(site)
+            if fallback:
+                lead["Email"] = fallback
 
     # =================================================
-    # 🌐 DEEP CONTACT PAGE CRAWL
+    # DEEP WEBSITE CRAWL
     # =================================================
     update_progress("🌐 Deep crawling websites...")
 
@@ -180,7 +233,6 @@ def run_global_scraper(cities=None, categories=None,
 
     for lead in unique:
         site = lead["Website"]
-
         if site in website_data:
             data = website_data[site]
 
@@ -194,29 +246,23 @@ def run_global_scraper(cities=None, categories=None,
                 lead["LinkedIn"] = data["LinkedIn"][0]
 
     # =================================================
-    # 🏢 ENRICH + SCORE
+    # ENRICH + SCORE
     # =================================================
     update_progress("🏢 Enriching & scoring leads...")
 
     for lead in unique:
         try:
             details = extract_company_details(lead["Website"])
-
             lead["Company"] = details["company_name"]
             lead["About"] = details["about"]
             lead["CompanySize"] = estimate_company_size(details["about"])
-
-            lead["EmailScore"] = score_email(
-                lead["Email"], lead["Website"]
-            )
-
+            lead["EmailScore"] = score_email(lead["Email"], lead["Website"])
             lead["LeadScore"] = score_lead(lead)
-
-        except Exception as e:
-            update_progress(f"Enrich error: {e}")
+        except:
+            pass
 
     # =================================================
-    # 💾 SAVE OUTPUT
+    # SAVE
     # =================================================
     os.makedirs("data", exist_ok=True)
 

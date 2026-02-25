@@ -33,8 +33,11 @@ def run_job(job_id, cities, categories):
             categories=categories
         )
 
-        jobs[job_id]["status"] = "completed"
-        jobs[job_id]["file"] = file_path
+        jobs[job_id].update({
+            "status": "completed",
+            "progress": 100,
+            "file": file_path
+        })
 
     except Exception as e:
         jobs[job_id]["status"] = "failed"

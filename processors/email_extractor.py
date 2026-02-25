@@ -1,5 +1,6 @@
 import re
 import urllib3
+import time
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -10,22 +11,20 @@ from processors.validator import filter_emails
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --------------------------------------------------
-# EMAIL PATTERN
+# EMAIL PATTERN (improved accuracy)
 # --------------------------------------------------
 
-EMAIL_REGEX = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+EMAIL_REGEX = r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b"
 
 COMMON_CONTACT_PATHS = [
     "/contact", "/contact-us", "/about", "/about-us",
     "/support", "/team", "/company", "/connect"
 ]
 
-# skip irrelevant domains ONLY
-SKIP_DOMAINS = [
-    ".gov", ".edu"
-]
+# Skip only true government & education domains
+SKIP_DOMAINS = (".gov", ".edu")
 
-# block directories & social platforms
+# Block directories & social platforms
 BLOCKED_DOMAINS = [
     "linkedin", "facebook", "instagram", "twitter",
     "youtube", "quora", "reddit", "indeed", "naukri",
@@ -54,15 +53,18 @@ def normalize(url):
 
 
 def skip_domain(url):
-    url = url.lower()
-    return any(x in url for x in SKIP_DOMAINS) or any(b in url for b in BLOCKED_DOMAINS)
+    """Avoid skipping valid company domains accidentally"""
+    domain = urlparse(url).netloc.lower()
+
+    if domain.endswith(SKIP_DOMAINS):
+        return True
+
+    return any(b in domain for b in BLOCKED_DOMAINS)
 
 
 def valid(email):
     email = email.lower()
-    if any(j in email for j in JUNK_EMAIL_PATTERNS):
-        return False
-    return True
+    return not any(j in email for j in JUNK_EMAIL_PATTERNS)
 
 # --------------------------------------------------
 # EMAIL EXTRACTION
@@ -106,16 +108,21 @@ def extract(html):
     return emails
 
 # --------------------------------------------------
-# WEBSITE SCRAPER
+# SAFE FETCH
 # --------------------------------------------------
 
 
 def fetch(url, timeout=12):
-    """Safe request with headers & retry"""
+    """Safe request with retry protection"""
     try:
-        return safe_request(url, timeout=timeout, headers=HEADERS)
+        res = safe_request(url, timeout=timeout, headers=HEADERS)
+        return res
     except:
         return None
+
+# --------------------------------------------------
+# WEBSITE SCRAPER
+# --------------------------------------------------
 
 
 def extract_emails_from_website(url):
@@ -143,34 +150,42 @@ def extract_emails_from_website(url):
             www_url = f"{parsed.scheme}://www.{parsed.netloc}"
             res = fetch(www_url)
 
-        if not res:
+        if not res or not res.text:
             return []
 
-        raw_emails.update(extract(res.text))
-        soup = BeautifulSoup(res.text, "html.parser")
+        html = res.text[:500000]  # safety limit for huge pages
+        raw_emails.update(extract(html))
+
+        soup = BeautifulSoup(html, "html.parser")
 
         # ===== 2️⃣ FIND CONTACT LINKS =====
         links = set()
-        for a in soup.find_all("a", href=True):
-            href = a["href"].lower()
 
-            if any(k in href for k in ["contact", "about", "support", "team", "connect"]):
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+
+            if href.startswith("#"):
+                continue
+
+            if any(k in href.lower() for k in ("contact", "about", "support", "team", "connect")):
                 links.add(urljoin(url, href))
 
         # visit top contact pages
         for link in list(links)[:5]:
+            time.sleep(0.3)
             res = fetch(link, timeout=10)
-            if res:
-                raw_emails.update(extract(res.text))
+            if res and res.text:
+                raw_emails.update(extract(res.text[:200000]))
 
         # ===== 3️⃣ COMMON CONTACT PATHS =====
         parsed = urlparse(url)
         root = f"{parsed.scheme}://{parsed.netloc}"
 
         for path in COMMON_CONTACT_PATHS:
+            time.sleep(0.3)
             res = fetch(urljoin(root, path), timeout=10)
-            if res:
-                raw_emails.update(extract(res.text))
+            if res and res.text:
+                raw_emails.update(extract(res.text[:200000]))
 
         if not raw_emails:
             return []

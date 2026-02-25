@@ -6,12 +6,11 @@ app = Flask(__name__)
 
 @app.route("/", methods=["GET"])
 def index():
-    return render_template("dashboard.py")
+    return render_template("dashboard.html")   # ✅ FIXED
 
 
 @app.route("/start", methods=["POST"])
 def start():
-
     cities_input = request.form.get("cities")
     categories_input = request.form.get("categories")
 

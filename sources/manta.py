@@ -1,53 +1,99 @@
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+
 from utils.headers import get_headers
+from utils.helpers import create_business
 from utils.stealth import human_delay
 
 
 def scrape_manta(city, keyword, pages=2):
+    """
+    Scrape Manta business listings
+    Works for US & global service companies
+    """
 
     results = []
+    session = requests.Session()
+    session.headers.update(get_headers())
+
     city_slug = city.replace(" ", "-").lower()
+    keyword_slug = keyword.replace(" ", "+")
 
     for page in range(1, pages + 1):
 
-        url = f"https://www.manta.com/search?search={keyword}&location={city_slug}&pg={page}"
+        url = (
+            f"https://www.manta.com/search?"
+            f"search={keyword_slug}&location={city_slug}&pg={page}"
+        )
 
         print(f"🟢 Manta → {url}")
 
         try:
-            res = requests.get(url, headers=get_headers(), timeout=20)
+            res = session.get(url, timeout=20)
+        except Exception:
+            continue
 
-            if res.status_code != 200:
+        if res.status_code != 200:
+            print("⚠ Blocked:", res.status_code)
+            continue
+
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        listings = soup.select(
+            "div.SearchResults__Result, div.search-result"
+        )
+
+        if not listings:
+            print("⚠ No listings found")
+            continue
+
+        for item in listings:
+
+            # -----------------
+            # BUSINESS NAME
+            # -----------------
+            name_tag = item.select_one(
+                "a.SearchResult__TitleLink, a[data-testid='title']"
+            )
+
+            if not name_tag:
                 continue
 
-            soup = BeautifulSoup(res.text, "html.parser")
-            listings = soup.select("div.SearchResults__Result")
+            name = name_tag.get_text(strip=True)
 
-            for item in listings:
-                name_tag = item.select_one("a.SearchResult__TitleLink")
-                if not name_tag:
-                    continue
+            # -----------------
+            # WEBSITE LINK
+            # -----------------
+            website = ""
 
-                name = name_tag.get_text(strip=True)
+            site_tag = item.select_one(
+                "a[href^='http'], a[data-testid='website']"
+            )
 
-                website = ""
-                site_tag = item.select_one("a[href^='http']")
-                if site_tag:
-                    website = site_tag.get("href")
+            if site_tag:
+                website = site_tag.get("href", "").strip()
 
-                if not website:
-                    continue
+                # handle relative links
+                if website.startswith("/"):
+                    website = urljoin("https://www.manta.com", website)
 
-                results.append({
-                    "Name": name,
-                    "Website": website,
-                    "Phone": ""
-                })
+            if not website:
+                continue
 
-            human_delay()
+            results.append(
+                create_business(
+                    name=name,
+                    phone="",
+                    address="",
+                    website=website,
+                    email="",
+                    city=city,
+                    category=keyword,
+                    source="Manta"
+                )
+            )
 
-        except Exception as e:
-            print("Manta error:", e)
+        human_delay()
 
     return results
