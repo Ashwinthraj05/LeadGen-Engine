@@ -1,21 +1,42 @@
 # ====================================
-# API KEYS
+# ENV / API CONFIG
 # ====================================
+
 import os
 from dotenv import load_dotenv
 
-# load .env safely
+# Load .env safely
 load_dotenv()
 
-SERP_API_KEY = os.getenv("SERPAPI_KEY")
+# -------------------------------------------------
+# SERPAPI KEY SUPPORT (Multi-key rotation ready)
+# -------------------------------------------------
 
-if not SERP_API_KEY:
-    print("⚠ WARNING: SERPAPI_KEY not found.")
-    print("➡ SerpAPI will be skipped, Playwright fallback will be used.")
+# SERPAPI_KEYS=key1,key2,key3
+raw_keys = os.getenv("SERPAPI_KEYS", "")
+
+if raw_keys:
+    SERPAPI_KEYS = [
+        key.strip()
+        for key in raw_keys.split(",")
+        if key.strip()
+    ]
+else:
+    # Backward compatibility (old single key format)
+    single_key = os.getenv("SERPAPI_KEY")
+    SERPAPI_KEYS = [single_key] if single_key else []
+
+#  Backward compatibility for old imports
+SERPAPI_KEY = SERPAPI_KEYS[0] if SERPAPI_KEYS else None
+
+if not SERPAPI_KEYS:
+    print("⚠ WARNING: No SERPAPI keys found.")
+    print("➡ SerpAPI will be skipped. Playwright fallback will be used.")
 
 # ====================================
 # REQUEST HEADERS
 # ====================================
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
     "Accept-Language": "en-IN,en;q=0.9",
@@ -37,6 +58,7 @@ ROTATE_USER_AGENTS = True
 # ====================================
 
 COUNTRIES = {
+
     "USA": [
         "New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "Dallas",
         "Austin", "San Diego", "San Jose", "Seattle", "Denver", "Atlanta",

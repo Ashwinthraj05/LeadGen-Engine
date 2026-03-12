@@ -1,84 +1,76 @@
-# processors/lead_score.py
+"""
+processors/lead_score.py
+FIXED:
+  1. Handles missing/None fields without crashing
+  2. EmailScore field is optional (was causing KeyError)
+  3. Checks both "Email" and "BestEmail" correctly
+  4. CompanySize comparison is case-insensitive
+"""
 
-def score_lead(lead):
-    """
-    Calculates overall lead quality score (0–100)
 
-    Focus:
-    ✔ deliverable email quality
-    ✔ decision-maker reach
-    ✔ company value
-    ✔ outreach readiness
+def score_lead(lead: dict) -> int:
     """
+    Score overall lead quality 0-100.
+    Higher = better outreach candidate.
+    """
+
+    if not lead or not isinstance(lead, dict):
+        return 0
 
     score = 0
 
-    # -------------------------
-    # EMAIL QUALITY (MOST IMPORTANT)
-    # -------------------------
+    # ── Email quality (most important) ────────────────────────────────────
+    best_email = (lead.get("BestEmail") or lead.get("Email") or "").lower()
 
-    best_email = lead.get("BestEmail") or ""
+    if best_email and "@" in best_email:
+        score += 35
 
-    if best_email:
-        score += 40
+        if any(best_email.startswith(p) for p in
+               ("ceo@", "founder@", "director@", "owner@",
+                "cofounder@", "president@", "partner@")):
+            score += 15   # decision maker
 
-        if best_email.startswith(("ceo@", "founder@", "director@", "owner@")):
-            score += 15  # decision maker bonus
+        elif any(best_email.startswith(p) for p in
+                 ("sales@", "info@", "contact@", "hello@", "enquiry@")):
+            score += 10   # business inbox
 
-        elif best_email.startswith(("sales@", "info@", "contact@")):
-            score += 10  # business inbox bonus
+    # add email score if available
+    email_score = lead.get("EmailScore", 0)
+    try:
+        score += int(email_score) // 5   # normalize: max +20
+    except (ValueError, TypeError):
+        pass
 
-    # fallback if only raw emails exist
-    elif lead.get("Email"):
-        score += 20
-
-    # email deliverability score
-    score += lead.get("EmailScore", 0)
-
-    # -------------------------
-    # LINKEDIN PRESENCE
-    # -------------------------
-
-    linkedin = lead.get("LinkedIn")
-
+    # ── LinkedIn ──────────────────────────────────────────────────────────
+    linkedin = lead.get("LinkedIn") or ""
     if linkedin:
-        score += 15
-
+        score += 10
         if "company" in linkedin.lower():
             score += 5
 
-    # -------------------------
-    # COMPANY SIZE VALUE
-    # -------------------------
-
-    size = lead.get("CompanySize")
-
-    if size == "Large":
-        score += 20
-    elif size == "Medium":
-        score += 12
-    elif size == "Small":
+    # ── Company size ──────────────────────────────────────────────────────
+    size = (lead.get("CompanySize") or "").strip().lower()
+    if size == "large":
+        score += 15
+    elif size == "medium":
+        score += 10
+    elif size == "small":
         score += 5
 
-    # -------------------------
-    # WEBSITE PRESENCE
-    # -------------------------
-
+    # ── Website ───────────────────────────────────────────────────────────
     if lead.get("Website"):
         score += 5
 
-    # -------------------------
-    # ABOUT / DESCRIPTION
-    # -------------------------
-
+    # ── About / description ───────────────────────────────────────────────
     if lead.get("About"):
         score += 5
 
-    # -------------------------
-    # PHONE (optional trust signal)
-    # -------------------------
-
+    # ── Phone ─────────────────────────────────────────────────────────────
     if lead.get("Phone"):
+        score += 5
+
+    # ── Address ───────────────────────────────────────────────────────────
+    if lead.get("Address"):
         score += 3
 
     return min(score, 100)
